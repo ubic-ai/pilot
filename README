@@ -1,0 +1,115 @@
+# UI Dissector
+
+A tool for analyzing UI design images and extracting components based on atomic design principles, using the Roboflow API for detection.
+
+## Features
+
+- Detect UI components in design images via API
+- Classify components according to atomic design principles (atoms, molecules, organisms, templates)
+- Analyze component relationships and hierarchy
+- Visualize detected components
+- Generate structured component data
+
+## Installation
+
+### Prerequisites
+- Python 3.7+
+- Roboflow API key (free tier available)
+
+### Setup
+
+1. Clone this repository:
+```bash
+git clone https://github.com/ubic/pilot.git
+cd pilot
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Set up your API key:
+```bash
+# Option 1: Environment variable
+export ROBOFLOW_API_KEY="your_api_key_here"
+
+# Option 2: Create a .env file
+echo "ROBOFLOW_API_KEY=your_api_key_here" > .env
+```
+
+## Usage
+
+### Basic Usage
+
+```python
+from ui_dissector import UIDissector
+
+# Initialize with API key
+dissector = UIDissector({
+    'api_key': 'your_api_key_here',  # Or set via environment variable
+    'confidence_threshold': 0.4      # Optional
+})
+
+# Process a design file
+result = dissector.process_design("path/to/design.png")
+
+# Print the results
+import json
+print(json.dumps(result, indent=2))
+```
+
+### Command Line Demo
+
+The included demo script provides a simple way to analyze designs:
+
+```bash
+python demo.py path/to/design.png --visualize
+```
+
+Additional options:
+- `--output results.json`: Save analysis results to a file
+- `--vis-output viz.png`: Save visualization to an image file
+- `--api-key YOUR_KEY`: Specify API key (if not using environment variable)
+- `--threshold 0.5`: Set confidence threshold for detection
+
+## Output Format
+
+The analysis result is a JSON object with the following structure:
+
+```json
+{
+  "source_image": "design.png",
+  "components": [
+    {
+      "type": "button",
+      "confidence": 0.95,
+      "bbox": [100, 200, 200, 240],
+      "atomic_level": "atom",
+      "children": [],
+      "parent": "form"
+    },
+    ...
+  ],
+  "summary": {
+    "atoms": 12,
+    "molecules": 4,
+    "organisms": 2,
+    "templates": 1
+  },
+  "metadata": {
+    "image_size": {"width": 1440, "height": 900},
+    "component_count": 19,
+    "detection_method": "api",
+    "processing_time": 0.85
+  }
+}
+```
+
+## No API Key?
+
+If you don't have a Roboflow API key, the system falls back to simulated detection for testing purposes.
+
+## License
+
+MIT
