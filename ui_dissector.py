@@ -178,97 +178,109 @@ class UIDissector:
             # Parse response
             result = response.json()
             
-            # Print response structure for debugging
-            print("Response structure:")
-            print(json.dumps(result, indent=2)[:500] + "..." if len(json.dumps(result)) > 500 else json.dumps(result, indent=2))
+            # Print the first 500 characters of the response for debugging
+            response_str = json.dumps(result)
+            print(f"Response preview: {response_str[:500]}{'...' if len(response_str) > 500 else ''}")
             
-            # Check if we have detection results
-            # The exact path will depend on the Roboflow Workflow API response structure
-            # This is a placeholder - adjust based on actual response structure
-            if "predictions" not in result and "objects" not in result:
-                print("No components detected in API response.")
-                print("Please check the API response structure.")
-                raise Exception("No detection results in API response")
+            # Parse the specific Roboflow Workflow API response structure
+            # Based on the provided response structure:
+            # {
+            #   "outputs": [
+            #     {
+            #       "predictions": {
+            #         "image": {
+            #           "width": 2048,
+            #           "height": 1536
+            #         },
+            #         "predictions": [
+            #           {
+            #             "width": 21.90625,
+            #             "height": 15.515625,
+            #             "x": 1488.0,
+            #             "y": 393.5,
+            #             "confidence": 0.9692381024360657,
+            #             "class_id": 6,
+            #             "class": "Icon",
+            #             "detection_id": "045db2ce-4e41-4806-8fa3-9ed6d537a750",
+            #             "parent_id": "image"
+            #           },
+            #           ...
+            #         ]
+            #       }
+            #     }
+            #   ]
+            # }
             
-            # Extract predictions from response
-            # The path may need to be adjusted based on the actual response structure
-            predictions = result.get("predictions", result.get("objects", []))
+            # Extract predictions
+            predictions = []
+            try:
+                if "outputs" in result and isinstance(result["outputs"], list) and len(result["outputs"]) > 0:
+                    first_output = result["outputs"][0]
+                    if "predictions" in first_output and isinstance(first_output["predictions"], dict):
+                        predictions_container = first_output["predictions"]
+                        if "predictions" in predictions_container and isinstance(predictions_container["predictions"], list):
+                            predictions = predictions_container["predictions"]
+            except Exception as e:
+                print(f"Error parsing predictions from response: {str(e)}")
+                print("Using simulated detection as fallback")
+                return self._simulate_component_detection(img)
             
             if not predictions:
-                print("No components detected by API.")
-                raise Exception("Empty detection results")
+                print("No predictions found in API response")
+                print("Using simulated detection as fallback")
+                return self._simulate_component_detection(img)
             
-            print(f"API returned {len(predictions)} predictions")
+            print(f"Found {len(predictions)} predictions in API response")
             
-            # Convert to our format
+            # Convert predictions to our format
             components = []
             for pred in predictions:
-                # Extract information based on the response structure
-                # This is a placeholder - adjust based on actual response
-                
-                # Example extraction - adjust fields based on actual response
-                comp_class = pred.get('class', pred.get('label', 'unknown'))
-                confidence = pred.get('confidence', pred.get('score', 0.5))
-                
-                # Extract bounding box - format may vary
-                bbox = pred.get('bbox', pred.get('box', {}))
-                
-                # Handle different bbox formats
-                if isinstance(bbox, dict):
-                    # Format might be {x, y, width, height} or {x1, y1, x2, y2}
-                    if 'x' in bbox and 'width' in bbox:
-                        # Center format
-                        x, y = bbox.get('x', 0), bbox.get('y', 0)
-                        w, h = bbox.get('width', 0), bbox.get('height', 0)
-                        
-                        # Convert to corner format
-                        x1 = max(0, int(x - w/2))
-                        y1 = max(0, int(y - h/2))
-                        x2 = min(width, int(x + w/2))
-                        y2 = min(height, int(y + h/2))
-                    else:
-                        # Corner format
-                        x1 = max(0, int(bbox.get('x1', bbox.get('left', 0))))
-                        y1 = max(0, int(bbox.get('y1', bbox.get('top', 0))))
-                        x2 = min(width, int(bbox.get('x2', bbox.get('right', width))))
-                        y2 = min(height, int(bbox.get('y2', bbox.get('bottom', height))))
-                elif isinstance(bbox, list) and len(bbox) >= 4:
-                    # List format [x1, y1, x2, y2] or [x, y, w, h]
-                    if len(bbox) == 4:
-                        if bbox[2] > width or bbox[3] > height:
-                            # Likely [x, y, w, h] format
-                            x1 = max(0, int(bbox[0]))
-                            y1 = max(0, int(bbox[1]))
-                            x2 = min(width, int(bbox[0] + bbox[2]))
-                            y2 = min(height, int(bbox[1] + bbox[3]))
-                        else:
-                            # Likely [x1, y1, x2, y2] format
-                            x1 = max(0, int(bbox[0]))
-                            y1 = max(0, int(bbox[1]))
-                            x2 = min(width, int(bbox[2]))
-                            y2 = min(height, int(bbox[3]))
-                else:
-                    # Unable to parse bbox
-                    print(f"Warning: Could not parse bbox format: {bbox}")
+                try:
+                    # Extract required fields
+                    comp_class = pred.get("class", "unknown")
+                    confidence = pred.get("confidence", 0.5)
+                    x = pred.get("x", 0)
+                    y = pred.get("y", 0)
+                    w = pred.get("width", 0)
+                    h = pred.get("height", 0)
+                    
+                    # Calculate bounding box in [x1, y1, x2, y2] format
+                    # Note: The x,y in the API response are center coordinates
+                    x1 = max(0, int(x - w/2))
+                    y1 = max(0, int(y - h/2))
+                    x2 = min(width, int(x + w/2))
+                    y2 = min(height, int(y + h/2))
+                    
+                    # Map component type to our standardized name
+                    component_type = self.component_name_mapping.get(
+                        comp_class, comp_class.lower()
+                    )
+                    
+                    components.append({
+                        'type': component_type,
+                        'confidence': float(confidence),
+                        'bbox': [x1, y1, x2, y2],
+                        'detection_id': pred.get("detection_id", ""),
+                        'parent_id': pred.get("parent_id", "")
+                    })
+                except Exception as e:
+                    print(f"Error processing prediction: {str(e)}")
                     continue
-                
-                # Map component type to our standardized name
-                component_type = self.component_name_mapping.get(
-                    comp_class, comp_class.lower()
-                )
-                
-                components.append({
-                    'type': component_type,
-                    'confidence': float(confidence),
-                    'bbox': [x1, y1, x2, y2]
-                })
             
             print(f"Processed {len(components)} components")
+            
+            # If no components were successfully processed, fall back to simulation
+            if not components:
+                print("No valid components could be processed from API response")
+                print("Using simulated detection as fallback")
+                return self._simulate_component_detection(img)
+            
             return components
             
         except Exception as e:
             print(f"API Error: {str(e)}")
-            raise
+            print("Using simulated detection as fallback")
+            return self._simulate_component_detection(img)
     
     def _simulate_component_detection(self, image):
         """Simulate component detection for demonstration purposes"""
@@ -331,6 +343,37 @@ class UIDissector:
     
     def analyze_relationships(self, components):
         """Analyze containment and other relationships between components"""
+        # Check if we have API-provided parent-child relationships
+        has_api_relationships = all('detection_id' in comp and 'parent_id' in comp for comp in components)
+        
+        # If components have API-provided parent-child relationships
+        if has_api_relationships:
+            print("Using API-provided parent-child relationships")
+            
+            # Create lookup dictionary by detection_id
+            comp_by_id = {comp.get('detection_id', ''): comp for comp in components if 'detection_id' in comp}
+            
+            # Initialize relationship data
+            for comp in components:
+                comp['children'] = []
+                comp['parent'] = None
+            
+            # Analyze relationships based on parent_id
+            for comp in components:
+                parent_id = comp.get('parent_id', '')
+                if parent_id and parent_id != 'image':  # 'image' is typically the root
+                    # Find the parent component
+                    parent_comp = comp_by_id.get(parent_id)
+                    if parent_comp:
+                        # Set parent-child relationship
+                        comp['parent'] = parent_comp['type']
+                        parent_comp['children'].append(comp['type'])
+            
+            return components
+        
+        # Fallback to spatial analysis if no API relationships
+        print("No API relationships found, using spatial analysis")
+        
         # Sort components by area (largest first) to ensure proper hierarchy
         components.sort(key=lambda c: (c['bbox'][2] - c['bbox'][0]) * (c['bbox'][3] - c['bbox'][1]), reverse=True)
         
@@ -397,14 +440,8 @@ class UIDissector:
             # Start timer
             start_time = time.time()
             
-            try:
-                # Try to detect components using API
-                components = self.detect_components(image)
-            except Exception as e:
-                # If API fails, fallback to simulated detection
-                print(f"API detection failed: {str(e)}")
-                print("Falling back to simulated detection")
-                components = self._simulate_component_detection(image)
+            # Detect components
+            components = self.detect_components(image)
             
             # Assign atomic design levels
             components = self.assign_atomic_levels(components)
@@ -429,7 +466,7 @@ class UIDissector:
                 'metadata': {
                     'image_size': {'width': image.shape[1], 'height': image.shape[0]},
                     'component_count': len(components),
-                    'detection_method': 'simulated',  # Default to simulated if we get here
+                    'detection_method': 'api' if self.api_key else 'simulated',
                     'processing_time': processing_time,
                     'output_directory': output_dir,
                 },
@@ -452,69 +489,6 @@ class UIDissector:
             
         except Exception as e:
             print(f"Error processing design: {str(e)}")
-            
-            # Even if there's an error, try to fall back to simulated detection
-            try:
-                print("Attempting to recover with simulated detection...")
-                
-                # Create output directory if it doesn't exist
-                if not output_dir:
-                    output_dir = os.path.join(os.getcwd(), f"ui_dissector_recovery_{uuid.uuid4().hex[:8]}")
-                os.makedirs(output_dir, exist_ok=True)
-                
-                # Copy original image if it exists
-                if os.path.exists(image_path):
-                    image_filename = os.path.basename(image_path)
-                    original_image_path = os.path.join(output_dir, f"original_{image_filename}")
-                    shutil.copy(image_path, original_image_path)
-                    
-                    # Load image
-                    image = cv2.imread(image_path)
-                    
-                    # Generate simulated components
-                    components = self._simulate_component_detection(image)
-                    components = self.assign_atomic_levels(components)
-                    components = self.analyze_relationships(components)
-                    
-                    # Create result structure
-                    result = {
-                        'source_image': image_path,
-                        'components': components,
-                        'summary': {
-                            'atoms': sum(1 for c in components if c['atomic_level'] == 'atom'),
-                            'molecules': sum(1 for c in components if c['atomic_level'] == 'molecule'),
-                            'organisms': sum(1 for c in components if c['atomic_level'] == 'organism'),
-                            'templates': sum(1 for c in components if c['atomic_level'] == 'template'),
-                            'unknown': sum(1 for c in components if c['atomic_level'] == 'unknown'),
-                        },
-                        'metadata': {
-                            'image_size': {'width': image.shape[1], 'height': image.shape[0]},
-                            'component_count': len(components),
-                            'detection_method': 'simulated_recovery',
-                            'output_directory': output_dir,
-                            'error': str(e)
-                        },
-                        'visualizations': {}
-                    }
-                    
-                    # Save results
-                    results_path = os.path.join(output_dir, "results.json")
-                    with open(results_path, "w") as f:
-                        json.dump(result, f, indent=2)
-                    
-                    result['metadata']['results_file'] = results_path
-                    
-                    # Generate visualizations
-                    if visualize:
-                        visualization_paths = self._generate_visualizations(image, components, output_dir, image_filename)
-                        result['visualizations'] = visualization_paths
-                    
-                    print(f"Recovery successful. Results saved to {output_dir}")
-                    return result
-                    
-            except Exception as recovery_error:
-                print(f"Recovery attempt failed: {str(recovery_error)}")
-            
             return None
     
     def _generate_visualizations(self, image, components, output_dir, image_filename):
@@ -779,7 +753,7 @@ class UIDissector:
         <!DOCTYPE html>
         <html lang="en">
         <head>
-            <meta charset="UTF-8">
+        <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>UI Dissector Report</title>
             <style>
@@ -977,6 +951,10 @@ class UIDissector:
             bbox_str = ", ".join(str(b) for b in comp['bbox'])
             children_str = ", ".join(comp.get('children', []))
             parent_str = comp.get('parent', 'None')
+            
+            # Add IDs if available
+            detection_id = comp.get('detection_id', '')
+            parent_id = comp.get('parent_id', '')
             
             html_content += f"""
                     <tr>

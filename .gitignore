@@ -1,0 +1,6 @@
+__pycache__
+*.py[cod]
+*$py.class
+.env
+*.png
+ui_dissector_output_*
